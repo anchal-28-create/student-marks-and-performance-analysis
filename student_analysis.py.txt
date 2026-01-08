@@ -1,0 +1,210 @@
+# student_analysis.py
+"""
+Student Marks & Performance Analysis
+- Loads a CSV of student marks
+- Cleans data
+- Computes per-student and per-subject stats
+- Identifies strong/weak subjects and consistency
+- Produces plots and an Excel summary
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+
+# -------------------
+# Helper / Config
+# -------------------
+INPUT_CSV = "students_marks.csv"
+OUTPUT_DIR = "analysis_output"
+EXCEL_OUT = os.path.join(OUTPUT_DIR, "summary.xlsx")
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# -------------------
+# 1) Load data
+# -------------------
+def load_data(path=INPUT_CSV):
+    df = pd.read_csv(path)
+    return df
+
+# -------------------
+# 2) Identify subject columns
+# -------------------
+def get_subject_columns(df):
+    # Assume non-subject columns are: StudentID, Name, Class, Section.
+    # Adjust as needed.
+    non_subjects = {'StudentID', 'Name', 'Class', 'Section'}
+    subjects = [c for c in df.columns if c not in non_subjects]
+    return subjects
+
+# -------------------
+# 3) Cleaning routine
+# -------------------
+def clean_data(df, subjects):
+    df = df.copy()
+    # 1) Strip whitespace from string columns
+    for col in df.select_dtypes(include=['object']).columns:
+        df[col] = df[col].astype(str).str.strip()
+
+    # 2) Convert subject columns to numeric, coerce errors to NaN
+    for s in subjects:
+        df[s] = pd.to_numeric(df[s], errors='coerce')
+
+    # 3) Deal with missing marks:
+    #    Option A: fill with subject mean (imputation)
+    #    Option B: leave NaN if you want to flag incomplete records.
+    # We'll fill with subject means and add a flag.
+    df['missing_any'] = df[subjects].isnull().any(axis=1)
+
+    for s in subjects:
+        mean_val = df[s].mean(skipna=True)
+        df[s] = df[s].fillna(mean_val)
+
+    return df
+
+# -------------------
+# 4) Compute per-student metrics
+# -------------------
+def student_metrics(df, subjects):
+    df = df.copy()
+    df['Total'] = df[subjects].sum(axis=1)
+    df['Average'] = df[subjects].mean(axis=1)
+    df['Min'] = df[subjects].min(axis=1)
+    df['Max'] = df[subjects].max(axis=1)
+    # Rank within the class (descending total)
+    df['Rank'] = df['Total'].rank(method='min', ascending=False).astype(int)
+    return df
+
+# -------------------
+# 5) Compute per-subject metrics
+# -------------------
+def subject_metrics(df, subjects):
+    stats = {}
+    for s in subjects:
+        arr = df[s]
+        stats[s] = {
+            'count': int(arr.count()),
+            'mean': float(arr.mean()),
+            'median': float(arr.median()),
+            'std': float(arr.std(ddof=0)),
+            'min': float(arr.min()),
+            'max': float(arr.max()),
+            'skew': float(arr.skew()),
+        }
+    subj_df = pd.DataFrame(stats).T
+    subj_df = subj_df[['count','mean','median','std','min','max','skew']]
+    return subj_df
+
+# -------------------
+# 6) Consistency & Strength detection
+# -------------------
+def analyze_consistency_and_strength(subj_df):
+    # Lower std => more consistent subject performance
+    subj_df = subj_df.copy()
+    mean_of_means = subj_df['mean'].mean()
+    subj_df['z_mean'] = (subj_df['mean'] - mean_of_means) / subj_df['mean'].std(ddof=0)
+    subj_df['consistency_rank'] = subj_df['std'].rank(method='min')
+    # label strengths
+    subj_df['strength'] = subj_df['z_mean'].apply(
+        lambda z: 'Strong' if z >= 0.5 else ('Weak' if z <= -0.5 else 'Average')
+    )
+    subj_df['consistency'] = subj_df['std'].apply(
+        lambda s: 'Consistent' if s <= subj_df['std'].median() else 'Variable'
+    )
+    return subj_df
+
+# -------------------
+# 7) Top/Bottom students per subject
+# -------------------
+def top_bottom_by_subject(df, subjects, top_n=3):
+    summary = {}
+    for s in subjects:
+        ordered = df.sort_values(by=s, ascending=False)
+        top = ordered[['StudentID','Name',s]].head(top_n)
+        bottom = ordered[['StudentID','Name',s]].tail(top_n)
+        summary[s] = {'top': top, 'bottom': bottom}
+    return summary
+
+# -------------------
+# 8) Plots
+# -------------------
+def plot_subject_distributions(df, subjects):
+    for s in subjects:
+        plt.figure(figsize=(6,4))
+        plt.hist(df[s], bins=10, edgecolor='black')
+        plt.title(f'Distribution of marks: {s}')
+        plt.xlabel('Marks')
+        plt.ylabel('Number of students')
+        plt.tight_layout()
+        out = os.path.join(OUTPUT_DIR, f'dist_{s}.png')
+        plt.savefig(out)
+        plt.close()
+
+def plot_average_by_subject(subj_df):
+    plt.figure(figsize=(8,4))
+    subj_df = subj_df.sort_values(by='mean', ascending=False)
+    plt.bar(subj_df.index, subj_df['mean'])
+    plt.title('Average marks by subject')
+    plt.ylabel('Average mark')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    out = os.path.join(OUTPUT_DIR, 'avg_by_subject.png')
+    plt.savefig(out)
+    plt.close()
+
+# -------------------
+# 9) Export results to Excel
+# -------------------
+def export_to_excel(student_df, subj_df, top_bottom, file_path=EXCEL_OUT):
+    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+        student_df.to_excel(writer, sheet_name='students', index=False)
+        subj_df.to_excel(writer, sheet_name='subjects')
+        # for each subject create a sheet with top/bottom
+        for s, tb in top_bottom.items():
+            sheet_name_top = f'{s}_top'
+            sheet_name_bot = f'{s}_bottom'
+            tb['top'].to_excel(writer, sheet_name=sheet_name_top, index=False)
+            tb['bottom'].to_excel(writer, sheet_name=sheet_name_bot, index=False)
+    print("Saved Excel summary to:", file_path)
+
+# -------------------
+# 10) Main pipeline
+# -------------------
+def run_pipeline(input_csv=INPUT_CSV):
+    df = load_data(input_csv)
+    subjects = get_subject_columns(df)
+    print("Detected subjects:", subjects)
+
+    df_clean = clean_data(df, subjects)
+    students = student_metrics(df_clean, subjects)
+    subj_stats = subject_metrics(df_clean, subjects)
+    subj_analysis = analyze_consistency_and_strength(subj_stats)
+    top_bottom = top_bottom_by_subject(students, subjects, top_n=5)
+
+    # Plots
+    plot_subject_distributions(df_clean, subjects)
+    plot_average_by_subject(subj_stats)
+
+    # Export
+    export_to_excel(students, subj_analysis, top_bottom)
+
+    # Print quick summary
+    print("\n--- Quick Summary ---")
+    print("Top 3 subjects by average:")
+    print(subj_stats.sort_values('mean', ascending=False).head(3)['mean'])
+    print("\nMost consistent subjects (lower std):")
+    print(subj_stats.sort_values('std').head(3)['std'])
+
+    return {
+        'students_df': students,
+        'subject_stats': subj_analysis,
+        'top_bottom': top_bottom
+    }
+
+# -------------------
+# If run directly
+# -------------------
+if __name__ == "__main__":
+    results = run_pipeline()
