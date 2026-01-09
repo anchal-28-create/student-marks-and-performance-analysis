@@ -25,14 +25,14 @@ Student consistency score
 Strongest and weakest subject per student
 Identification of top and at-risk students
 
-✅5.Interactive Visualization
+5.Interactive Visualization
 Users can choose which plots to generate:
 Histogram (marks distribution)
 Bar chart (average per subject)
 Box plot (outliers & spread)
 All visualizations together
 
-✅6.Automatic Insights
+6.Automatic Insights
 The system automatically generates insights such as:
 Hardest and easiest subjects
 Most consistent subject
