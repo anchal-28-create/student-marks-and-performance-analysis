@@ -11,7 +11,7 @@ Allow users to choose custom visualizations
 Generate automatic academic insights
 Export results into a structured Excel report
 
- 3. Key Features
+3. Key Features
  Subject-wise Analysis
 Average marks per subject
 Marks distribution using histograms
@@ -38,7 +38,7 @@ Hardest and easiest subjects
 Most consistent subject
 Number of students at academic risk
 
-7. Excel Report Generation
+7.Excel Report Generation
 Creates a multi-sheet Excel file containing:
 All student details
 Subject-wise statistics
